@@ -52,6 +52,27 @@ pub struct DaemonArgs {
 pub struct HistoryArgs {
     #[arg(long, default_value = "1h", help = "History window to dump")]
     pub last: String,
+
+    #[arg(
+        long,
+        value_name = "PATH",
+        default_value = "./sysprobe_history.json",
+        help = "History JSON file written by `sysprobe daemon`"
+    )]
+    pub file: PathBuf,
+
+    #[arg(long, default_value_t = 1, help = "Seconds between live samples")]
+    pub interval: u64,
+
+    #[arg(
+        long,
+        default_value_t = 5,
+        help = "Maximum live samples to collect for this command"
+    )]
+    pub samples: usize,
+
+    #[arg(long, help = "Emit the history report as JSON")]
+    pub json: bool,
 }
 
 #[derive(Debug, Clone, clap::Args)]

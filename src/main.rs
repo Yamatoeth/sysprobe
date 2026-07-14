@@ -14,9 +14,10 @@ mod ui;
 use clap::Parser;
 use sysinfo::System;
 
-use crate::cli::{Cli, Command, SnapshotArgs, TopSortKey};
+use crate::cli::{Cli, Command, HistoryArgs, SnapshotArgs, TopSortKey};
 use crate::collectors::processes::{ProcessCollector, TopProcessSort};
 use crate::collectors::Collector;
+use crate::history::{HistoryBuffer, HistoryReport};
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
@@ -28,7 +29,7 @@ fn main() -> anyhow::Result<()> {
         Command::Snapshot(args) => run_snapshot(args.json || cli.json)?,
         Command::Watch(args) => run_watch(args.interval)?,
         Command::Daemon(args) => run_daemon(args.config)?,
-        Command::History(args) => run_history(&args.last),
+        Command::History(args) => run_history(&args)?,
         Command::Top(args) => run_top(args.by, args.limit)?,
     }
 
@@ -57,9 +58,52 @@ fn run_daemon(config: Option<std::path::PathBuf>) -> anyhow::Result<()> {
     runtime.block_on(daemon::run_daemon(config.as_deref()))
 }
 
-fn run_history(last: &str) {
-    println!("placeholder: dispatch history command (last={last})");
-    todo!("dump recent history");
+fn run_history(args: &HistoryArgs) -> anyhow::Result<()> {
+    let window = history::parse_window_duration(&args.last)?;
+
+    let report = if args.file.exists() {
+        let contents = std::fs::read_to_string(&args.file)?;
+        let persisted = export::history_from_json(&contents)?;
+        persisted.for_window(&args.last, window)
+    } else {
+        collect_live_history(args, window)?
+    };
+
+    if args.json {
+        println!("{}", export::history_to_json(&report)?);
+    } else {
+        println!("{}", history::render_history_report(&report));
+    }
+
+    Ok(())
+}
+
+fn collect_live_history(
+    args: &HistoryArgs,
+    window: std::time::Duration,
+) -> anyhow::Result<HistoryReport> {
+    let interval = std::time::Duration::from_secs(args.interval.max(1));
+    let sample_count = history::sample_count_for_window(window, interval, args.samples);
+
+    if sample_count == 0 {
+        anyhow::bail!("history --samples must be greater than zero");
+    }
+
+    let mut sys = System::new_all();
+    let mut history_buffer = HistoryBuffer::new(sample_count);
+
+    for index in 0..sample_count {
+        history_buffer.push(collectors::collect_all(&mut sys)?);
+        if index + 1 < sample_count {
+            std::thread::sleep(interval);
+        }
+    }
+
+    Ok(HistoryReport::from_history(
+        &args.last,
+        interval.as_secs(),
+        &history_buffer,
+    ))
 }
 
 fn run_top(by: TopSortKey, limit: usize) -> anyhow::Result<()> {

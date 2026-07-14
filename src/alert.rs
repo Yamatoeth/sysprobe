@@ -7,6 +7,7 @@ pub struct AlertRule {
     pub name: String,
     pub metric: MetricKind,
     pub threshold_percent: f32,
+    pub recovery_threshold_percent: f32,
     pub sustained_ticks: u32,
 }
 
@@ -72,7 +73,7 @@ impl AlertEngine {
                         at: snapshot.timestamp,
                     });
                 }
-            } else {
+            } else if value <= rule.recovery_threshold_percent {
                 state.consecutive_over_threshold = 0;
                 if state.active {
                     state.active = false;
@@ -81,6 +82,8 @@ impl AlertEngine {
                         at: snapshot.timestamp,
                     });
                 }
+            } else if !state.active {
+                state.consecutive_over_threshold = 0;
             }
         }
 
@@ -145,18 +148,40 @@ mod tests {
     }
 
     #[test]
+    fn keeps_alert_active_until_recovery_threshold() {
+        let mut engine = AlertEngine::new(vec![AlertRule {
+            name: "cpu-high".to_owned(),
+            metric: MetricKind::Cpu,
+            threshold_percent: 80.0,
+            recovery_threshold_percent: 70.0,
+            sustained_ticks: 1,
+        }]);
+
+        assert_eq!(engine.evaluate(&snapshot(90.0, 10.0, 10.0)).len(), 1);
+        assert!(engine.evaluate(&snapshot(75.0, 10.0, 10.0)).is_empty());
+
+        let events = engine.evaluate(&snapshot(70.0, 10.0, 10.0));
+        assert!(matches!(
+            events.as_slice(),
+            [AlertEvent::Resolved { rule_name, .. }] if rule_name == "cpu-high"
+        ));
+    }
+
+    #[test]
     fn evaluates_memory_and_disk_rules() {
         let mut engine = AlertEngine::new(vec![
             AlertRule {
                 name: "memory-high".to_owned(),
                 metric: MetricKind::Memory,
                 threshold_percent: 70.0,
+                recovery_threshold_percent: 70.0,
                 sustained_ticks: 1,
             },
             AlertRule {
                 name: "disk-high".to_owned(),
                 metric: MetricKind::Disk("/".to_owned()),
                 threshold_percent: 90.0,
+                recovery_threshold_percent: 90.0,
                 sustained_ticks: 1,
             },
         ]);
@@ -171,6 +196,7 @@ mod tests {
             name: "cpu-high".to_owned(),
             metric: MetricKind::Cpu,
             threshold_percent,
+            recovery_threshold_percent: threshold_percent,
             sustained_ticks,
         }
     }

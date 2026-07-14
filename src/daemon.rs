@@ -8,7 +8,7 @@ use tracing::{error, info, warn};
 
 use crate::alert::{AlertEngine, AlertEvent, AlertRule, MetricKind};
 use crate::config::Config;
-use crate::history::HistoryBuffer;
+use crate::history::{HistoryBuffer, HistoryReport};
 
 pub async fn run_daemon(config_path: Option<&Path>) -> anyhow::Result<()> {
     init_tracing();
@@ -30,6 +30,7 @@ pub async fn run_daemon(config_path: Option<&Path>) -> anyhow::Result<()> {
         interval_secs = config.general.refresh_interval_secs.max(1),
         history_capacity = config.general.history_capacity,
         json_output_path = %config.export.json_output_path,
+        history_output_path = %config.export.history_output_path,
         "sysprobe daemon started"
     );
 
@@ -48,6 +49,18 @@ pub async fn run_daemon(config_path: Option<&Path>) -> anyhow::Result<()> {
                             &snapshot,
                         ) {
                             error!(error = %error, "failed to write snapshot JSON");
+                        }
+
+                        let report = HistoryReport::from_history(
+                            "daemon",
+                            config.general.refresh_interval_secs.max(1),
+                            &history,
+                        );
+                        if let Err(error) = crate::export::write_history_file(
+                            &config.export.history_output_path,
+                            &report,
+                        ) {
+                            error!(error = %error, "failed to write history JSON");
                         }
                     }
                     Err(error) => {
@@ -75,21 +88,37 @@ fn alert_rules_from_config(config: &Config) -> Vec<AlertRule> {
             name: "cpu-high".to_owned(),
             metric: MetricKind::Cpu,
             threshold_percent: config.alerts.cpu_percent_max,
+            recovery_threshold_percent: recovery_threshold(
+                config.alerts.cpu_percent_max,
+                config.alerts.recovery_margin_percent,
+            ),
             sustained_ticks: config.alerts.sustained_ticks,
         },
         AlertRule {
             name: "memory-high".to_owned(),
             metric: MetricKind::Memory,
             threshold_percent: config.alerts.mem_percent_max,
+            recovery_threshold_percent: recovery_threshold(
+                config.alerts.mem_percent_max,
+                config.alerts.recovery_margin_percent,
+            ),
             sustained_ticks: config.alerts.sustained_ticks,
         },
         AlertRule {
             name: "root-disk-high".to_owned(),
             metric: MetricKind::Disk("/".to_owned()),
             threshold_percent: config.alerts.disk_percent_max,
+            recovery_threshold_percent: recovery_threshold(
+                config.alerts.disk_percent_max,
+                config.alerts.recovery_margin_percent,
+            ),
             sustained_ticks: config.alerts.sustained_ticks,
         },
     ]
+}
+
+fn recovery_threshold(threshold_percent: f32, recovery_margin_percent: f32) -> f32 {
+    (threshold_percent - recovery_margin_percent.max(0.0)).clamp(0.0, threshold_percent)
 }
 
 fn log_alert_event(event: &AlertEvent) {

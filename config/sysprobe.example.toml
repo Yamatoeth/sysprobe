@@ -7,6 +7,8 @@ cpu_percent_max = 90.0
 mem_percent_max = 90.0
 disk_percent_max = 95.0
 sustained_ticks = 3
+recovery_margin_percent = 5.0
 
 [export]
 json_output_path = "./sysprobe_snapshot.json"
+history_output_path = "./sysprobe_history.json"

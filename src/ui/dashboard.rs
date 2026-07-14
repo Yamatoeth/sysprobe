@@ -21,7 +21,10 @@ use crate::collectors;
 use crate::config::Config;
 use crate::history::HistoryBuffer;
 use crate::snapshot::{ProcessInfo, SystemSnapshot};
-use crate::ui::sparkline::{cpu_sparkline, cpu_sparkline_data};
+use crate::ui::sparkline::{
+    cpu_sparkline_data, memory_sparkline_data, network_sparkline, network_sparkline_data,
+    percent_sparkline,
+};
 use crate::ui::table::render_snapshot_table;
 
 type TuiTerminal = Terminal<CrosstermBackend<Stdout>>;
@@ -70,6 +73,7 @@ fn draw_dashboard(
         .constraints([
             Constraint::Length(3),
             Constraint::Length(5),
+            Constraint::Length(5),
             Constraint::Min(8),
         ])
         .split(frame.area());
@@ -97,9 +101,41 @@ fn draw_dashboard(
         gauges[1],
     );
 
-    let sparkline_data = cpu_sparkline_data(history);
-    frame.render_widget(cpu_sparkline(&sparkline_data), root[1]);
-    frame.render_widget(process_table(&snapshot.top_processes), root[2]);
+    let history_panels = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage(33),
+            Constraint::Percentage(34),
+            Constraint::Percentage(33),
+        ])
+        .split(root[1]);
+
+    let cpu_data = cpu_sparkline_data(history);
+    let memory_data = memory_sparkline_data(history);
+    let network_data = network_sparkline_data(history);
+
+    frame.render_widget(
+        percent_sparkline("CPU history", &cpu_data, Color::Cyan),
+        history_panels[0],
+    );
+    frame.render_widget(
+        percent_sparkline("RAM history", &memory_data, Color::Blue),
+        history_panels[1],
+    );
+    frame.render_widget(network_sparkline(&network_data), history_panels[2]);
+
+    frame.render_widget(network_panel(snapshot), root[2]);
+    frame.render_widget(process_table(&snapshot.top_processes), root[3]);
+}
+
+fn network_panel(snapshot: &SystemSnapshot) -> ratatui::widgets::Paragraph<'_> {
+    ratatui::widgets::Paragraph::new(format!(
+        "rx {}/s    tx {}/s    active connections {}",
+        format_bytes(snapshot.network.rx_bytes_per_sec),
+        format_bytes(snapshot.network.tx_bytes_per_sec),
+        snapshot.network.active_connections
+    ))
+    .block(Block::default().title("Network").borders(Borders::ALL))
 }
 
 fn process_table(processes: &[ProcessInfo]) -> Table<'_> {
