@@ -1,0 +1,12 @@
+.omx/
+
+# Rust build output
+/target/
+
+# OS/editor noise
+.DS_Store
+
+# Local environment/config overrides
+.env
+.env.*
+*.local

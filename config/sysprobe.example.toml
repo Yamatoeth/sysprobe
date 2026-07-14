@@ -1,0 +1,12 @@
+[general]
+refresh_interval_secs = 2
+history_capacity = 120
+
+[alerts]
+cpu_percent_max = 90.0
+mem_percent_max = 90.0
+disk_percent_max = 95.0
+sustained_ticks = 3
+
+[export]
+json_output_path = "./sysprobe_snapshot.json"
